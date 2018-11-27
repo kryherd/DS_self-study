@@ -1001,3 +1001,254 @@ General ideas:
 2. Instead of using `setwd()` all the time, use an R project.
 
 I think R projects are just basically directories that are structured in a standard way, where you use relative paths rather than absolute paths.
+
+# Chapter 10 - Tibbles
+
+`as.tibble` works like `as.data.frame()`
+`tibble()` works like `data.frame()`, except that it doesn't change the type of the input (e.g., string to factor)
+
+You can use `tribble()` to make creating a data frame easier to read.
+
+```{r}
+tribble(
+  ~x, ~y, ~z,
+  #--|--|----
+  "a", 2, 3.6,
+  "b", 1, 8.5
+)
+```
+
+## Tibbles vs. Data Frames
+
+### Printing
+
+By default, a tibble will only print the first 10 rows of a table and only those columns that fit on the screen. You can modify this if you want. `width = Inf` will print all the columns.
+
+```{r}
+nycflights13::flights %>% 
+  print(n = 10, width = Inf)
+```
+
+### Exercises
+
+1. How can you tell if an object is a tibble? (Hint: try printing `mtcars`, which is a regular data frame).
+
+It will print differently -- in particular, tibbles will say `A tibble` at the top.
+
+2. Compare and contrast the following operations on a `data.frame` and equivalent tibble. What is different? Why might the default data frame behaviours cause you frustration?
+
+```{r}
+df <- data.frame(abc = 1, xyz = "a")
+df_tibble <- tibble(abc = 1, xyz = "a")
+df$x
+df_tibble$x
+```
+
+In this one, the `data.frame` returned the most similar column (`xyz`), while the tibble returned an error. Tibbles don't do partial matching. A partial match could lead to errors -- e.g., if you think you are calling column `x` but actually it was never created, so instead you are calling `xyz`.
+
+```{r}
+class(df[, "xyz"])
+class(df_tibble[, "xyz"])
+```
+
+Here, the `data.frame` returns a vector of a factor with one level (`a`), while the tibble returns a character tibble.
+
+```{r}
+df[, c("abc", "xyz")]
+df_tibble[, c("abc", "xyz")]
+```
+
+In this case they return the same thing.
+
+3. If you have the name of a variable stored in an object, e.g. `var <- "mpg"`, how can you extract the reference variable from a tibble?
+
+```{r}
+var <- "mpg"
+mtcars %>% .[[var]]
+```
+
+4. Practice referring to non-syntactic names in the following data frame by:
+  1. Extracting the variable called 1.
+  2. Plotting a scatterplot of 1 vs 2.
+  3. Creating a new column called 3 which is 2 divided by 1.
+  4. Renaming the columns to one, two and three.
+  
+```{r}
+annoying <- tibble(
+  `1` = 1:10,
+  `2` = `1` * 2 + rnorm(length(`1`))
+)
+
+annoying$`1`
+
+annoying %>%
+  ggplot(aes(`1`, `2`)) + geom_point()
+
+annoying <- annoying %>%
+  mutate(`3` = `2`/`1`)
+
+names(annoying) <- c("one", "two", "three")
+annoying
+```
+
+5. What does `tibble::enframe()` do? When might you use it?
+
+`enframe()` takes a named vector and turns it into a two-column data frame. It is useful to deal with a lot of the output from stats methods.
+
+6. What option controls how many additional column names are printed at the footer of a tibble?
+
+You can use `n_extra` in `print()`.
+
+# Chapter 11 - Data Import
+
+## Interesting things about `read_csv()`
+
+* You can provide an inline comma separated file.
+* `skip = n` lets you skip a few lines at the top of the file (good for E-Prime exports)
+* `comment = "#"` will skip any lines that start with `#`.
+
+## `readr` vs. base R
+
+Reasons why `read_csv()` from `readr` is better than base R's `read.csv`
+
+* It's faster
+* It automatically creates tibbles
+* It is more reproducible
+
+## Parsing a vector
+
+`parse_*()` takes two arguments: a vector and a collection of strings to treat as `NA`.
+
+To parse numbers, you can give arguments to `locale` -- e.g., changing from 1.00 to 1,00.
+
+Sometimes it's useful to parse factors as character vectors until you've finished cleaning them up.
+### Exercises
+
+1.What function would you use to read a file where fields were separated with
+    `|`? 
+    
+```{r, error = TRUE}
+read_delim(path_to_file, delim = "|")
+```
+
+2. Apart from `file`, `skip`, and `comment`, what other arguments do `read_csv()` and `read_tsv()` have in common?
+
+`col_names`, `col_types`, `locale`, `na`, `quoted_na`, `quote`, `trim_ws`, `skip`, `n_max`, `guess_max`, `progress`.
+
+3. What are the most important arguments to read_fwf()?
+
+Probably `file` and `col_positions`. `col_positions` says how wide each of the fixed-width columns are.
+
+4. Sometimes strings in a CSV file contain commas. To prevent them from causing problems they need to be surrounded by a quoting character, like `"` or `'`. By convention, `read_csv()` assumes that the quoting character will be `"`, and if you want to change it you’ll need to use `read_delim()` instead. What arguments do you need to specify to read the following text into a data frame?
+
+```{r}
+read_csv("x,y\n1,'a,b'", quote = "'")
+```
+
+5. Identify what is wrong with each of the following inline CSV files. What happens when you run the code?
+```{r}
+read_csv("a,b\n1,2,3\n4,5,6")
+read_csv("a,b,c\n1,2\n1,2,3,4")
+```
+
+These ones have too many columns in one of the lower rows.
+
+```{r}
+read_csv("a,b\n\"1")
+```
+
+This one has an extra `\`.
+
+```{r}
+read_csv("a,b\n1,2\na,b")
+```
+This one is fine.
+
+```{r}
+read_csv("a;b\n1;3")
+```
+
+This one needs to have the separator changed to `;`.
+
+6. What are the most important arguments to `locale()`?
+
+The most important argument is probably `date_names`, where you can just set it to something like `en` or `fr`. 
+
+7. What happens if you try and set `decimal_mark` and `grouping_mark` to the same character? 
+
+```{r error = TRUE}
+parse_number("123,456,789", locale = locale(grouping_mark = ",", decimal_mark = ","))
+```
+
+You get an error.
+
+What happens to the default value of `grouping_mark` when you set `decimal_mark` to `,`?
+
+```{r}
+parse_number("123,456,789", locale = locale(decimal_mark = ","))
+```
+
+It changes to `.`.
+
+What happens to the default value of `decimal_mark` when you set the `grouping_mark` to `.`?
+
+```{r}
+parse_number("123,456,789", locale = locale(decimal_mark = "."))
+```
+
+It changes to `,`.
+
+8. I didn’t discuss the `date_format` and `time_format` options to `locale()`. What do they do? Construct an example that shows when they might be useful.
+
+It lets you set what the date or time format should be manually. E.g.,
+
+```{r}
+str(parse_guess("01/02/2013", locale = locale(date_format = "%d/%m/%Y")))
+```
+
+9. If you live outside the US, create a new locale object that encapsulates the settings for the types of file you read most commonly.
+
+I live inside the US!
+
+10. What’s the difference between `read_csv()` and `read_csv2()`?
+
+`read_csv()` uses `,` for the separator and `.` for decimals. `read_csv2()` uses `;` for the separator and `,` for the decimal mark.
+
+11. What are the most common encodings used in Europe? What are the most common encodings used in Asia? Do some googling to find out.
+
+ISO 8859 is used in Europe commonly (Greek, polish, Slovenian) as well as windows-1251 and windows-1254. Chinese uses Big5 and gb18030, Korean uses EUC-KR, Japanese uses Shift_JIS
+
+12. Generate the correct format string to parse each of the following dates and times:
+
+```{r}
+d1 <- "January 1, 2010"
+parse_date(d1, "%B %d, %Y")
+
+d2 <- "2015-Mar-07"
+parse_date(d2, "%Y-%b-%d")
+
+d3 <- "06-Jun-2017"
+parse_date(d3, "%d-%b-%Y")
+
+d4 <- c("August 19 (2015)", "July 1 (2015)")
+parse_date(d4, "%B %d (%Y)")
+
+d5 <- "12/30/14" # Dec 30, 2014
+parse_date(d5, "%m/%d/%y")
+
+t1 <- "1705"
+parse_time(t1, "%H%M")
+
+t2 <- "11:15:10.12 PM"
+parse_time(t2, "%I:%M:%OS %p")
+```
+
+## Parsing a file
+
+If your columns are not coming in as the right type, you can tell `readr` how to parse them manually.
+
+## Writing to a file
+
+If you want to save interim results, you can use `write_rds` and `read_rds` to preserve column types.
+
+
