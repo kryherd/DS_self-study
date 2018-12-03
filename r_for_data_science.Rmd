@@ -1251,4 +1251,338 @@ If your columns are not coming in as the right type, you can tell `readr` how to
 
 If you want to save interim results, you can use `write_rds` and `read_rds` to preserve column types.
 
+# Chapter 12 - Tidy Data
+
+Tidy data follows a particular structure:
+
+1. Each variable must have its own column.
+2. Each observation must have its own row.
+3. Each value must have its own cell.
+
+## Missing Data
+
+Missing data can exist **explicitly** (as a value of `NA`) or **implicitly** (by just not being present).
+
+`complete()` takes all of the combinations of a set of columns (like subject and condition) and makes one row for each combination, filling in empty cells with `NA`.
+
+`fill()` will replace missing cells with the most recent non-missing value (based on row index).
+
+### Exercises
+
+1. Using prose, describe how the variables and observations are organised in each of the sample tables.
+
+`table1`: Each row has `cases` and `population` for a single year in a single country.
+`table2`: This is a long dataset (good for plotting, sometimes). Each row has some observation (either `cases` or `population`) for a single country in a single year.
+`table3:` Here the numeric data (`rate`) is stored as a character vector! This is pretty obnoxious.
+`table4a` & `table4b`: Each table has one row per country showing values for something with separate columns per year.
+
+2. Compute the rate for `table2`, and `table4a` + `table4b`. You will need to perform four operations:
+  * Extract the number of TB cases per country per year.
+  * Extract the matching population per country per year.
+  * Divide cases by population, and multiply by 10000.
+  * Store back in the appropriate place.
+Which representation is easiest to work with? Which is hardest? Why?
+
+```{r}
+table2 %>%
+  spread(key = type, value = count) %>%
+  mutate(rate = cases/population * 10000)
+
+table4a_2 <- table4a %>%
+  gather(key = year, value = cases, `1999`, `2000`)
+
+table4b_2 <- table4b %>%
+  gather(key = year, value = population, `1999`, `2000`)
+
+table4 <- merge(table4a_2, table4b_2)
+
+table4 %>%
+  mutate(rate = cases/population * 10000)
+```
+
+Definitely `table2` is easier because you can just reshape it into wide format easily. For the two separate tables, you have to 1) know what data they show (population vs. cases) 2) reshape them 3) merge them, all before creating the `rate` variable.
+
+3. Recreate the plot showing change in cases over time using `table2` instead of `table1`. What do you need to do first?
+
+```{r}
+ggplot(table1, aes(year, cases)) + 
+  geom_line(aes(group = country), colour = "grey50") + 
+  geom_point(aes(colour = country))
+
+table2 %>%
+  spread(key = type, value = count) %>%
+  ggplot(aes(year, cases)) + 
+  geom_line(aes(group = country), colour = "grey50") + 
+  geom_point(aes(colour = country))
+```
+
+You have to use `spread()` to get the right data format.
+
+4. Why are `gather()` and `spread()` not perfectly symmetrical?
+Carefully consider the following example:
+
+```{r}
+stocks <- tibble(
+  year   = c(2015, 2015, 2016, 2016),
+  half  = c(   1,    2,     1,    2),
+  return = c(1.88, 0.59, 0.92, 0.17)
+  )
+stocks %>% 
+  spread(year, return) %>% 
+  gather("year", "return", `2015`:`2016`)
+```
+
+*(Hint: look at the variable types and think about column names.)*
+
+The `year` variable is originally numeric, but then when it becomes a column name through `spread()` and then a value again through `gather()`, it ends up as a character variable. These functions do not preserve variable type.
+
+5. Both `spread()` and `gather()` have a convert argument. What does it do?
+
+The convert variable deals with the issue above, turning character column names into numeric/logical/integer.
+
+6. Why does this code fail?
+
+```{r, error = TRUE}
+table4a %>% 
+  gather(1999, 2000, key = "year", value = "cases")
+#> Error in inds_combine(.vars, ind_list): Position must be between 0 and n
+```
+
+When you use numbers for column names, you have to use tick marks to surround them or else they will not work.
+
+7. Why does spreading this tibble fail? How could you add a new column to fix the problem?
+
+```{r}
+people <- tribble(
+  ~name,             ~key,    ~value,
+  #-----------------|--------|------
+  "Phillip Woods",   "age",       45,
+  "Phillip Woods",   "height",   186,
+  "Phillip Woods",   "age",       50,
+  "Jessica Cordero", "age",       37,
+  "Jessica Cordero", "height",   156
+  )
+```
+
+There are two rows that have the same name and key (Phllip Woods, age). You could add an id column if you want.
+
+8. Tidy the simple tibble below. Do you need to spread or gather it? What are the variables?
+
+```{r}
+preg <- tribble(
+  ~pregnant, ~male, ~female,
+  "yes",     NA,    10,
+  "no",      20,    12
+  )
+```
+
+This column should be gathered.
+
+```{r}
+preg %>%
+  gather(key = gender, value = number, male, female)
+```
+
+The variables are `pregnant`, `gender`, and `number`.
+
+9. What do the `extra` and `fill` arguments do in `separate()`? Experiment with the various options for the following two toy datasets.
+
+```{r}
+tibble(x = c("a,b,c", "d,e,f,g", "h,i,j")) %>% 
+  separate(x, c("one", "two", "three"))
+
+tibble(x = c("a,b,c", "d,e", "f,g,i")) %>% 
+  separate(x, c("one", "two", "three"))
+```
+
+`extra` lets you choose what to do with extra pieces (e.g., in row 2). The default is to drop with a warning.
+
+`fill` lets you choose what to do when there are not enough pieces. By default it fills from the right (if nothing on the right, then `NA`).
+
+10. Both `unite()` and `separate()` have a `remove` argument. What does it do? Why would you set it to `FALSE`?
+
+`remove` lets you choose if you want to keep the original column(s) or omit them. You can set it to `FALSE` if you want to keep the original column in the data frame.
+
+11. Compare and contrast `separate()` and `extract()`. Why are there three variations of separation (by position, by separator, and with groups), but only one unite?
+
+`separate()` splits a single column into multiple columns based on a separator or position. `extract()` uses a regular expression to get capturing groups and then puts them into columns. Thus, `extract()` lets you look for something different with each section of the column/string. 
+
+There are lots of ways to split a string, but only one way to paste it back together!
+
+12. Compare and contrast the `fill` arguments to `spread()` and `complete()`.
+
+In `spread()`, `fill` lets you choose what to replace missing values (explicit and implicit) with.
+
+In `complete()`, `fill` also lets you choose what to use for missing combinations (explicit and implicit), but you can set it for each variable.
+
+13. What does the direction argument to `fill()` do?
+
+It lets you choose whether to copy entries up the data frame or down the data frame.
+
+14. In this case study I set `na.rm = TRUE` just to make it easier to check that we had the correct values. Is this reasonable? Think about how missing values are represented in this dataset. Are there implicit missing values? What’s the difference between an `NA` and zero?
+
+```{r}
+table(who$new_ep_f5564)
+table(is.na(who$new_ep_f5564))
+```
+
+In this dataset it seems like missing values are truly missing, which implies that it has mostly explicit missingness. `table()` shows that there are entered values of 0.
+
+15. What happens if you neglect the `mutate()` step? (`mutate(key = stringr::str_replace(key, "newrel", "new_rel"))`)
+
+```{r}
+who %>%
+  gather(key, value, new_sp_m014:newrel_f65, na.rm = TRUE) %>% 
+  mutate(key = stringr::str_replace(key, "newrel", "new_rel")) %>%
+  separate(key, c("new", "var", "sexage")) %>% 
+  select(-new, -iso2, -iso3) %>% 
+  separate(sexage, c("sex", "age"), sep = 1)
+```
+
+You will have values of `key` that mean the same thing but are counted as different variables because there are slight variations in how they were named.
+
+16. I claimed that `iso2` and `iso3` were redundant with country. Confirm this claim.
+
+```{r}
+who %>%
+  group_by(country, iso2, iso3) %>%
+  summarise(freq = n()) %>% 
+  group_by(country) %>%
+  summarise(freq2 = n()) %>%
+  filter(freq2 > 1)
+```
+
+No country has more than one combination of `country`, `iso2` and `iso3`.
+
+17. For each country, year, and sex compute the total number of cases of TB. Make an informative visualisation of the data.
+
+```{r}
+who %>%
+  gather(key, value, new_sp_m014:newrel_f65, na.rm = TRUE) %>% 
+  mutate(key = stringr::str_replace(key, "newrel", "new_rel")) %>%
+  separate(key, c("new", "var", "sexage")) %>% 
+  select(-new, -iso2, -iso3) %>% 
+  separate(sexage, c("sex", "age"), sep = 1) %>%
+  group_by(country, year, sex) %>%
+  summarise(count = n()) %>%
+  ggplot(aes(year, count)) + geom_point() + facet_wrap(~sex) + theme_bw()
+```
+
+It doesn't really make sense to plot all 200+ countries. Perhaps if I had region information I could color-code the points on the plot. Ideally, there would be lines connecting the points from a given region to give a sense of change over time.
+
+# Chapter 13 - Relational Data
+
+**Relational data** takes place over multiple tables.
+
+
+**Mutating joins**: add new variables to one data frame from matching observations in another.
+
+**Filtering joins**: filter observations from one data frame based on whether or not they match an observation in the other table.
+
+**Set operations**: treat observations as if they were set elements.
+
+### Exercises
+
+1. Imagine you wanted to draw (approximately) the route each plane flies from its origin to its destination. What variables would you need? What tables would you need to combine?
+
+You'd need to join `airports` on `flights` to get the lat/long of the airports.
+
+2. I forgot to draw the relationship between `weather` and `airports`. What is the relationship and how should it appear in the diagram?
+
+`origin` in `weather` = `faa` in `airports`.
+
+3. `weather` only contains information for the origin (NYC) airports. If it contained weather records for all airports in the USA, what additional relation would it define with flights?
+
+You would be able to join `weather` on `flights` either by `origin` or `destination`, depending on which data you wanted.
+
+4. We know that some days of the year are “special”, and fewer people than usual fly on them. How might you represent that data as a data frame? What would be the primary keys of that table? How would it connect to the existing tables?
+
+```{r}
+flights %>%
+  left_join(select(planes, tailnum, seats)) %>%
+  group_by(month,day) %>%
+  summarise(n_seats = sum(seats, na.rm = TRUE)) %>%
+  arrange(n_seats)
+```
+
+This data frame shows the total number of seats available in all of the flights departing on a given day from NYC airports. The fewest seats available are shown at the top of the dataset. The primary key is the combination of month and day, which allows you to join it (not so well) to other tables.
+
+We could also make a data frame of days that people might not travel often (Christmas, New Years', etc.), but the data shows that this is not really the case. However, it might be useful if we want to filter those days (or other holiday travel) out of the other data frames.
+
+5. Add a surrogate key to `flights`.
+
+```{r}
+flights %>%
+  mutate(id = row_number())
+```
+
+6.  Identify the keys in the following datasets
+
+```{r}
+library(Lahman)
+library(babynames)
+library(nasaweather)
+library(fueleconomy)
+```
+
+  * `Lahman::Batting`
+  
+```{r}
+Lahman::Batting %>%
+  count(playerID, yearID, stint) %>%
+  filter(n > 1)
+```
+
+Combo of `playerID`, `yearID` and `stint`.
+
+  * `babynames::babynames`
+
+```{r}
+babynames::babynames %>%
+  count(year, sex, name) %>%
+  filter(nn > 1)
+```
+
+Combo of `year`, `sex`, and `name`.
+
+  * `nasaweather::atmos`
+  
+```{r}
+nasaweather::atmos %>%
+  count(lat, long, year, month) %>%
+  filter(n > 1)
+```
+
+Combo of `lat`, `long`, `year`, and `month`.
+
+  * `fueleconomy::vehicles`
+    
+```{r}
+fueleconomy::vehicles %>%
+  count(id) %>%
+  filter(n > 1)
+```
+
+Just `id`!
+  
+  * `ggplot2::diamonds`
+      
+I don't think there is one for this table!
+  
+(You might need to install some packages and read some documentation.)
+
+7. Draw a diagram illustrating the connections between the `Batting`, `Master`, and `Salaries` tables in the `Lahman` package. 
+
+`playerID` is common to `Batting`, `Master`, and `Salary`. To combine `Batting` and `Salaries`, you shouls use `yearID` as well.
+
+Draw another diagram that shows the relationship between `Master`, `Managers`, `AwardsManagers`.
+
+To join `Managers` and `AwardsManagers`, you can use `playerID` and `yearID`, probably filtering by `plyrMgr == "Y"`. Then you can join in `Master` by `playerID`.
+
+How would you characterise the relationship between the `Batting`, `Pitching`, and `Fielding` tables?
+
+They have the same primary key -- a combo of `playerID`, `yearID`, and `stint`.
+
+
+
 
